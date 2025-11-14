@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S-Park</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="icon" type="image/png" href="logo.png">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .view { display: none; }
+        .view.active { display: block; }
+        #map-container { height: 60vh; width: 100%; border-radius: 0.5rem; z-index: 0; }
+    </style>
+</head>
+<body class="bg-gray-900">
+
+<script>
+    // Authentication guard
+    if (!localStorage.getItem('smartpark_user')) {
+        window.location.href = './login.html';
+    }
+</script>
+
+<div id="app-container" class="flex min-h-screen">
+    <!-- Sidebar -->
+    <aside class="w-64 bg-gray-800 p-4 flex flex-col flex-shrink-0">
+        <div class="flex items-center gap-3 p-4">
+            <img src="logo.png" alt="S-Park Logo" class="w-10 h-10 rounded-full object-cover" />
+            <h1 class="text-white text-2xl font-bold">S-Park</h1>
+            <!-- notification icon container (used by renderNotificationIcon) -->
+            <div id="notification-icon-container" class="ml-auto"></div>
+        </div>
+        <ul class="text-gray-300 space-y-2 flex-grow">
+            <li data-view="home" class="nav-item p-4 rounded-lg cursor-pointer flex items-center gap-3 hover:bg-gray-700">Home</li>
+            <li data-view="parking" class="nav-item p-4 rounded-lg cursor-pointer flex items-center gap-3 bg-purple-600 text-white">Parking</li>
+            <li data-view="planner" class="nav-item p-4 rounded-lg cursor-pointer flex items-center gap-3 hover:bg-gray-700">Route Planner</li>
+            <li data-view="services" class="nav-item p-4 rounded-lg cursor-pointer flex items-center gap-3 hover:bg-gray-700">Auto Services</li>
+            <li data-view="finder" class="nav-item p-4 rounded-lg cursor-pointer flex items-center gap-3 hover:bg-gray-700">Fuel Finder</li>
+            <li data-view="bookings" class="nav-item p-4 rounded-lg cursor-pointer flex items-center gap-3 hover:bg-gray-700">My Bookings</li>
+        </ul>
+        <div class="border-t border-gray-700 mt-4 pt-4">
+            <li data-view="account" class="nav-item p-4 rounded-lg cursor-pointer flex items-center gap-3 hover:bg-gray-700 text-gray-300">My Account</li>
+            <li id="logout-button" class="p-4 rounded-lg cursor-pointer flex items-center gap-3 hover:bg-gray-700 text-gray-300">Logout</li>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 overflow-y-auto relative">
+        <!-- Views are dynamically inserted here -->
+    </main>
+</div>
+
+<!-- Modals and Notifications -->
+<div id="modal-container"></div>
+<div id="toast-container"></div>
+
+<script>
+/* --------------------
+   Configuration + State
+   -------------------- */
+const API_BASE_URL = 'https://s-park-backend-1.onrender.com/api';
+
+const defaultParkingSlots = {
+    Secunderabad: [
+        { id: 'A-1', status: 'Available', type: 'Standard', price: 50 },
+        { id: 'A-2', status: 'Booked', type: 'Standard', price: 50 },
+        { id: 'A-3', status: 'Available', type: 'Standard', price: 50 },
+        { id: 'EV-1', status: 'Available', type: 'EV Charging', price: 80 },
+        { id: 'A-4', status: 'Available', type: 'Standard', price: 50 },
+        { id: 'EV-2', status: 'Available', type: 'EV Charging', price: 80 },
+    ],
+    Kompally: [ { id: 'M-1', status: 'Available', type: 'Standard', price: 70 }, { id: 'M-2', status: 'Booked', type: 'Standard', price: 70 }, { id: 'EV-M1', status: 'Available', type: 'EV Charging', price: 100 } ],
+    Suchitra: [ { id: 'D-1', status: 'Booked', type: 'Standard', price: 60 }, { id: 'D-2', status: 'Available', type: 'Standard', price: 60 } ],
+    Medchal: [ { id: 'C-1', status: 'Available', type: 'Standard', price: 55 }, { id: 'C-2', status: 'Available', type: 'Standard', price: 55 }, { id: 'EV-C1', status: 'Booked', type: 'EV Charging', price: 85 } ],
+    CMR: [ { id: 'P-1', status: 'Available', type: 'Standard', price: 65 }, { id: 'P-2', status: 'Available', type: 'Standard', price: 65 }, { id: 'EV-P1', status: 'Available', type: 'EV Charging', price: 95 }, { id: 'EV-P2', status: 'Available', type: 'EV Charging', price: 95 }, ],
+    Tank_Bund: [ { id: 'T-1', status: 'Available', type: 'Standard', price: 75 }, { id: 'T-2', status: 'Available', type: 'Standard', price: 75 }, { id: 'EV-T1', status: 'Available', type: 'EV Charging', price: 105 } ],
+    Charminar: [ { id: 'CH-1', status: 'Booked', type: 'Standard', price: 80 }, { id: 'CH-2', status: 'Available', type: 'Standard', price: 80 }, { id: 'EV-CH1', status: 'Available', type: 'EV Charging', price: 110 } ],
+    Central_Bus_Station: [ { id: 'AG-1', status: 'Available', type: 'Standard', price: 70 }, { id: 'AG-2', status: 'Booked', type: 'Standard', price: 70 }, { id: 'EV-AG1', status: 'Available', type: 'EV Charging', price: 100 } ],
+    Nampally: [ { id: 'N-1', status: 'Available', type: 'Standard', price: 60 }, { id: 'N-2', status: 'Available', type: 'Standard', price: 60 }, { id: 'EV-N1', status: 'Booked', type: 'EV Charging', price: 90 } ]
+};
+
+const defaultLocations = [
+    { name: 'Secunderabad', image: 'secbad.jpeg' },
+    { name: 'Kompally', image: 'kompally.jpeg' },
+    { name: 'Suchitra', image: 'suchitra.jpg' },
+    { name: 'Medchal', image: 'medchal.jpeg' },
+    { name: 'CMR', image: 'cmr.jpeg' },
+    { name: 'Tank Bund', image: 'tank_bund.jpeg' },
+    { name: 'Charminar', image: 'charminar.jpeg' },
+    { name: 'Central_Bus_Station', image: 'central_bus_station.jpeg' },
+    { name: 'Nampally', image: 'nampally.jpeg' }
+];
+
+const AppState = {
+    currentView: 'home',
+    selectedCity: null,
+    activeBooking: null,
+    finalBill: null,
+    serviceBookings: [],
+    parkingSlots: {}, // will be filled from backend or default
+    locations: [],
+    fuelStations: [
+        { name: 'IOCL Downtown', brand: 'IOCL', distance: 1.8, price: 96.50, services: ['Car Wash', '24/7'] },
+        { name: 'IOCL City Pump', brand: 'IOCL', distance: 3.2, price: 96.90, services: ['Convenience Store'] },
+        { name: 'BP Express', brand: 'BP', distance: 2.5, price: 96.20, services: ['Cafe', 'Restrooms'] },
+        { name: 'BP Rapid Stop', brand: 'BP', distance: 4.1, price: 96.00, services: ['24/7'] },
+        { name: 'HP Central', brand: 'HP', distance: 2.9, price: 96.55, services: ['Car Wash', 'Cafe'] },
+        { name: 'HP North', brand: 'HP', distance: 5.4, price: 96.75, services: ['Restrooms'] },
+        { name: 'Highway Fuel Oasis', brand: 'Generic', distance: 5.0, price: 97.10, services: ['Restrooms', '24/7'] }
+    ],
+    user: { name: 'Nihal', email: 'nihal@example.com', memberSince: '2024-01-15', vehicle: { model: 'Tesla Model 3', plate: 'TS 11 A 1111' } },
+    toastTimer: null,
+    noShowTimer: null,
+    notificationInterval: null
+};
+
+/* --------------------
+   Utilities
+   -------------------- */
+function escapeHtml(str = '') {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function showModal(innerHtml) {
+    document.getElementById('modal-container').innerHTML = innerHtml;
+}
+function closeModal() {
+    document.getElementById('modal-container').innerHTML = '';
+}
+function showToast({ title, body, type = 'success' }) {
+    const container = document.getElementById('toast-container');
+    clearTimeout(AppState.toastTimer);
+    const colors = { success: 'border-green-500', warning: 'border-yellow-500', error: 'border-red-500' };
+    container.innerHTML = `
+        <div class="fixed bottom-5 right-5 bg-gray-800 text-white ${colors[type] || colors.success} border rounded-lg px-6 py-4 shadow-lg z-50">
+            <p class="font-semibold">${escapeHtml(title)}</p>
+            <p class="text-sm text-gray-300">${escapeHtml(body)}</p>
+        </div>`;
+    AppState.toastTimer = setTimeout(() => container.innerHTML = '', 5000);
+}
+
+/* --------------------
+   Sensor / Real-time
+   -------------------- */
+/* Keep real-time sensing code active */
+try {
+    const socket = io('https://s-park-backend-1.onrender.com');
+    socket.on('connect', () => console.log('✅ Real-time connection established!'));
+    socket.on('slotUpdated', (updatedSlotData) => {
+        console.log('Received real-time slot update:', updatedSlotData);
+
+        // resolve location key (keeps parity with frontend naming)
+        const locationKey = resolveCityKey(updatedSlotData.location);
+
+        // 1) Update local AppState slot data (if present)
+        if (locationKey && AppState.parkingSlots[locationKey]) {
+            const idx = AppState.parkingSlots[locationKey].findIndex(s => (s.slotId || s.id) === updatedSlotData.slotId);
+            if (idx !== -1) {
+                AppState.parkingSlots[locationKey][idx].status = updatedSlotData.status ?? AppState.parkingSlots[locationKey][idx].status;
+                AppState.parkingSlots[locationKey][idx].isOccupied = typeof updatedSlotData.isOccupied !== 'undefined' ? updatedSlotData.isOccupied : AppState.parkingSlots[locationKey][idx].isOccupied;
+            }
+        }
+
+        // 2) Update UI if viewing the affected city
+        if (AppState.selectedCity === locationKey) {
+            updateSlotOnUI({
+                slotId: updatedSlotData.slotId,
+                status: updatedSlotData.status
+            });
+        }
+
+        // 3) Auto-simulate arrival: if there's an active booking for this slot and sensor reports occupied,
+        //    mark carArrived = true, clear no-show timers and keep the booking (do NOT auto-cancel).
+        try {
+            if (AppState.activeBooking && !AppState.activeBooking.carArrived) {
+                const bookedSlotId = (AppState.activeBooking.slot && (AppState.activeBooking.slot.slotId || AppState.activeBooking.slot.id)) || null;
+                const bookingCityKey = resolveCityKey(AppState.activeBooking.city);
+                const sensorSlotId = updatedSlotData.slotId;
+
+                if (bookingCityKey === locationKey && bookedSlotId && sensorSlotId && bookedSlotId === sensorSlotId && updatedSlotData.isOccupied) {
+                    // mark as arrived and stop auto-cancellation
+                    AppState.activeBooking.carArrived = true;
+                    clearTimers(); // stop reminders / auto-cancel
+                    showToast({ title: 'Vehicle Detected', body: `Sensor reports vehicle at ${bookedSlotId}. Booking is now active.`, type: 'success' });
+                    renderCurrentView();
+                }
+            }
+        } catch (e) {
+            console.error('Auto-simulate arrival error:', e);
+        }
+    });
+    socket.on('connect_error', (err) => {
+        console.error('Socket connection error:', err);
+        showToast({ title: 'Real-Time Error', body: 'Could not connect for live updates.', type: 'error' });
+    });
+} catch (e) {
+    console.error('Socket initialization failed', e);
+}
+
+/* Periodic sensor fetch (keeps sensor behavior) */
+async function getSensorData() {
+    try {
+        const res = await fetch(`${API_BASE_URL}/sensor`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const el = document.getElementById('temperature');
+        if (el && data && typeof data.temperature !== 'undefined') {
+            el.innerText = "Temperature: " + data.temperature + "°C";
+        }
+    } catch (err) {
+        // don't spam console
+        // console.warn('Sensor fetch failed', err);
+    }
+}
+setInterval(getSensorData, 5000);
+getSensorData();
+
+/* --------------------
+   Renderers
+   -------------------- */
+const renderHome = () => `
+<div class="relative min-h-screen flex items-center justify-center">
+    <video autoplay muted loop playsinline class="absolute inset-0 w-full h-full object-cover z-0">
+        <source src="istockphoto-943126266-640_adpp_is.mp4" type="video/mp4">
+    </video>
+    <div class="absolute inset-0 bg-black bg-opacity-50 z-0"></div>
+    <div class="relative z-10 p-8 text-white max-w-3xl mx-auto">
+        <div class="flex flex-col items-center">
+            <img src="images/logo.png" alt="S-Park App" class="w-32 h-32 rounded-full shadow-lg mb-6 object-cover" />
+            <h1 class="text-4xl font-bold mb-4 text-center">Welcome to S-Park!</h1>
+            <p class="text-lg text-gray-300 mb-6 text-center">S-Park is your smart parking assistant.</p>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mt-8">
+            <div id="home-smart-parking" class="bg-gray-800 rounded-lg p-6 border border-gray-700 text-center cursor-pointer hover:bg-purple-700 transition">
+                <h3 class="font-bold text-xl mb-2">Smart Parking</h3>
+            </div>
+            <div id="home-route-planner" class="bg-gray-800 rounded-lg p-6 border border-gray-700 text-center cursor-pointer hover:bg-purple-700 transition">
+                <h3 class="font-bold text-xl mb-2">Route Planner</h3>
+            </div>
+            <div id="home-auto-services" class="bg-gray-800 rounded-lg p-6 border border-gray-700 text-center cursor-pointer hover:bg-purple-700 transition">
+                <h3 class="font-bold text-xl mb-2">Auto Services</h3>
+            </div>
+        </div>
+    </div>
+</div>
+`;
+
+const renderFuelFinder = () => `
+<div class="p-8 text-white">
+    <h1 class="text-3xl font-bold mb-2">Find Fuel Stations</h1>
+    <p class="text-gray-400 mb-6">Search nearby stations and see price & services.</p>
+    <div class="flex gap-4 mb-8">
+        <input id="fuel-search" type="text" placeholder="Search by name..." class="flex-grow bg-gray-800 border border-gray-700 rounded-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-purple-500"/>
+        <select id="fuel-filter" class="bg-gray-800 border border-gray-700 rounded-lg py-2 px-4">
+            <option value="">All Brands</option>
+            <option>IOCL</option>
+            <option>BP</option>
+            <option>HP</option>
+        </select>
+    </div>
+
+    <div id="fuel-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        ${(AppState.fuelStations || []).map(station => `
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 flex flex-col justify-between">
+                <div>
+                    <div class="flex justify-between items-start mb-2">
+                        <h3 class="font-bold text-xl truncate" title="${escapeHtml(station.name)}">${escapeHtml(station.name)}</h3>
+                        <span class="bg-gray-700 text-xs font-semibold px-2 py-1 rounded-full">${escapeHtml(station.brand || '')}</span>
+                    </div>
+                    <p class="text-gray-400 text-sm mb-3">
+                        <span class="font-semibold text-white">${station.distance ?? '-'} km</span> · ₹${station.price ?? '-'} /litre
+                    </p>
+                    <div class="flex gap-2 flex-wrap mb-3">
+                        ${(station.services || []).map(s => `<span class="bg-gray-700 text-xs px-2 py-1 rounded">${escapeHtml(s)}</span>`).join('')}
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button class="w-full bg-purple-600 hover:bg-purple-700 py-2 rounded-lg font-semibold">Get Directions</button>
+                    <button class="w-28 bg-gray-700 hover:bg-gray-600 py-2 rounded-lg font-semibold" data-station="${escapeHtml(station.name)}">Details</button>
+                </div>
+            </div>
+        `).join('')}
+    </div>
+</div>
+`;
+
+const renderRoutePlanner = () => `
+<div class="p-8 text-white">
+    <h1 class="text-3xl font-bold mb-2">Route Planner</h1>
+    <p class="text-gray-400 mb-6">Enter start and destination to plan a route.</p>
+
+    <div class="grid gap-4 mb-6 max-w-3xl">
+        <div class="flex gap-2">
+            <input id="start-location" placeholder="Start (address or lat,lng)" class="flex-grow bg-gray-800 border border-gray-700 rounded-lg py-2 px-3" />
+            <button id="get-current-location" class="bg-gray-700 px-3 rounded-lg">My Location</button>
+        </div>
+        <input id="destination-location" placeholder="Destination (address or lat,lng)" class="bg-gray-800 border border-gray-700 rounded-lg py-2 px-3" />
+        <div class="flex gap-2">
+            <button id="plan-route-btn" class="bg-purple-600 hover:bg-purple-700 py-2 px-4 rounded-lg font-semibold">Plan Route</button>
+            <div id="route-error" class="text-yellow-400 self-center"></div>
+        </div>
+    </div>
+
+    <div id="map-container" class="rounded-lg overflow-hidden border border-gray-700"></div>
+</div>
+`;
+
+const renderAutoServices = () => `
+<div class="p-8 text-white">
+    <h1 class="text-3xl font-bold mb-2">Auto Services</h1>
+    <p class="text-gray-400 mb-6">Book car wash, oil change, valet and more while you park.</p>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+        ${['Car Wash','Valet','Oil Change','Tire Check','Interior Cleaning'].map(service => `
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 flex flex-col justify-between">
+                <div>
+                    <h3 class="font-bold text-xl mb-2">${escapeHtml(service)}</h3>
+                    <p class="text-gray-400 text-sm">Quick ${escapeHtml(service.toLowerCase())} while you park.</p>
+                </div>
+                <div class="mt-4 flex gap-2">
+                    <button class="service-book-btn w-full bg-purple-600 hover:bg-purple-700 py-2 rounded-lg font-semibold">Book</button>
+                    <button class="w-20 bg-gray-700 hover:bg-gray-600 py-2 rounded-lg text-sm">Info</button>
+                </div>
+            </div>
+        `).join('')}
+    </div>
+</div>
+`;
+
+const renderLocationSelection = () => `
+<div class="p-8 text-white">
+    <h1 class="text-3xl font-bold mb-2">Parking</h1>
+    <p class="text-gray-400 mb-6">Select a Location</p>
+
+    <div class="relative mb-6 max-w-xl">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"><circle cx="8" cy="8" r="6"/><path d="m17 17-3.5-3.5"/></svg>
+        <input id="location-search" type="text" placeholder="Search locations..." class="w-full bg-gray-800 border border-gray-700 rounded-lg py-3 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+    </div>
+
+    <div id="locations-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+        ${(AppState.locations || []).map(location => `
+            <div data-city="${escapeHtml(location.name)}" class="location-card bg-gray-800 rounded-lg overflow-hidden cursor-pointer group transform hover:-translate-y-1 transition-transform duration-300">
+                <img src="${escapeHtml(location.image)}" alt="${escapeHtml(location.name)}" class="w-full h-40 object-cover" onerror="this.src='https://placehold.co/400x300/2d3748/ffffff?text=Image+Not+Found'">
+                <div class="p-4"><h3 class="font-semibold text-lg">${escapeHtml(location.name)}</h3></div>
+            </div>
+        `).join('')}
+    </div>
+</div>
+`;
+
+
+const renderParkingGrid = (city) => {
+    const slots = AppState.parkingSlots[city] || [];
+    if (!slots || slots.length === 0) {
+        return `
+        <div class="p-8 text-white">
+            <button id="back-to-locations" class="flex items-center gap-2 text-gray-400 hover:text-white mb-6">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+                Back to Locations
+            </button>
+            <h1 class="text-3xl font-bold mb-4">Parking — ${escapeHtml(city)}</h1>
+            <div class="text-gray-400 mt-6">
+                <p>No parking slot data found for <span class="font-semibold text-white">${escapeHtml(city)}</span>.</p>
+                <p class="mt-2">This can happen if the location name does not match the server keys. Try another location or check server data.</p>
+            </div>
+        </div>
+        `;
+    }
+
+    return `
+    <div class="p-8 text-white">
+        <button id="back-to-locations" class="flex items-center gap-2 text-gray-400 hover:text-white mb-6">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+            Back to Locations
+        </button>
+
+        <h1 class="text-3xl font-bold mb-4">Parking — ${escapeHtml(city)}</h1>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            ${slots.map(slot => {
+                // normalize status
+                const statusRaw = slot.status ?? slot.state ?? slot.statusText ?? '';
+                const statusNorm = String(statusRaw).toLowerCase();
+                const isAvailable = statusNorm === 'available' || statusNorm === 'free' || statusNorm === 'vacant';
+
+                // robust type detection with fallbacks and inference from id
+                const rawType = slot.type ?? slot.slotType ?? slot.t ?? slot.kind ?? slot.category ?? slot.vehicleType;
+                const slotId = slot.slotId ?? slot.id ?? slot._id ?? 'UNKNOWN';
+                const inferredType = (!rawType && String(slotId).toLowerCase().startsWith('ev')) ? 'EV Charging' : rawType;
+                const displayType = String(inferredType ?? 'Standard');
+
+                // robust price detection across common fields
+                const priceRaw = slot.price ?? slot.rate ?? slot.pricePerHour ?? slot.hourlyRate ?? slot.cost ?? slot.fee;
+                const priceValue = (typeof priceRaw === 'number' || (!isNaN(Number(priceRaw)) && priceRaw !== null && priceRaw !== '')) ? Number(priceRaw) : '-';
+                const priceDisplay = priceValue === '-' ? '-' : priceValue.toFixed(2);
+
+                const isEV = displayType.toLowerCase().includes('ev') || displayType.toLowerCase().includes('charging');
+
+                const statusBadge = isAvailable ? 'bg-green-500' : ((statusNorm && (statusNorm.includes('book') || statusNorm.includes('reserved'))) ? 'bg-yellow-500' : 'bg-red-500');
+
+                // special styling for specific EV slots (optional)
+                const isSpecialEV = slotId === 'EV-P1' || slotId === 'EV-P2';
+                const bgClass = isSpecialEV ? 'bg-blue-900' : 'bg-gray-800';
+                let borderClass = isAvailable ? 'border-gray-700' : 'border-red-500';
+                if (isSpecialEV && isAvailable) borderClass = 'border-blue-500';
+
+                return `
+                <div id="slot-${escapeHtml(slotId)}" class="${bgClass} rounded-lg p-4 border ${borderClass} flex flex-col justify-between">
+                    <div>
+                        <div class="flex justify-between items-start mb-2">
+                            <div>
+                                <h3 class="font-bold text-xl">${escapeHtml(slotId)}</h3>
+                                <div class="text-sm text-gray-400">${escapeHtml(displayType)}</div>
+                            </div>
+                            ${isEV ? `<div class="text-blue-400" title="EV Charging">⚡</div>` : ''}
+                        </div>
+
+                        <div class="flex items-center gap-3 mb-3">
+                            <div class="w-3 h-3 rounded-full ${statusBadge}"></div>
+                            <div class="text-sm font-semibold">${escapeHtml(slot.status || (isAvailable ? 'Available' : 'Occupied'))}</div>
+                        </div>
+
+                        <div class="text-gray-400 text-lg">₹ ${escapeHtml(priceDisplay)} /hr</div>
+                    </div>
+
+                    <div class="mt-4">
+                        <button data-slot-id="${escapeHtml(slotId)}" data-city="${escapeHtml(city)}" class="book-slot-btn w-full py-2 rounded-lg font-semibold ${isAvailable ? 'bg-purple-600 hover:bg-purple-700' : 'bg-gray-600 cursor-not-allowed'}" ${isAvailable ? '' : 'disabled'}>
+                            ${isAvailable ? 'Book Now' : 'Booked'}
+                        </button>
+                    </div>
+                </div>
+                `;
+            }).join('')}
+        </div>
+    </div>
+    `;
+};
+const renderMyBookings = () => {
+    if (AppState.activeBooking) {
+        const booking = AppState.activeBooking;
+        return `
+        <div class="p-8 text-white h-full">
+            <h1 class="text-3xl font-bold mb-6">My Bookings</h1>
+            <div class="bg-gray-800 rounded-lg p-6 max-w-sm mx-auto">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <h2 class="text-2xl font-bold">Slot ${escapeHtml(booking.slot.id)}</h2>
+                        <p class="text-gray-400">${escapeHtml(booking.city)}</p>
+                    </div>
+                    <span class="bg-gray-700 text-xs font-semibold px-3 py-1 rounded-full">${escapeHtml(booking.slot.type)}</span>
+                </div>
+                <div class="space-y-2 text-gray-300">
+                    <p>Vehicle: ${escapeHtml(booking.vehicleNumber)}</p>
+                    <p>Booked by: ${escapeHtml(booking.name)}</p>
+                    <p>Start Time: ${escapeHtml(booking.startTime)}</p>
+                </div>
+                ${booking.carArrived ? `
+                <div class="mt-6">
+                    <p class="text-green-400 text-center font-semibold mb-4">Vehicle Parked</p>
+                    <button id="car-left-btn" class="w-full bg-blue-600 hover:bg-blue-700 rounded-lg py-3 font-semibold transition-colors">Simulate Car Left & Pay</button>
+                </div>
+                ` : `
+                <div class="mt-6">
+                    <p class="text-yellow-400 text-center font-semibold mb-4 animate-pulse">Waiting for vehicle arrival...</p>
+                    <button id="car-arrived-btn" class="w-full bg-green-600 hover:bg-green-700 rounded-lg py-3 font-semibold transition-colors">Simulate Car Arrived</button>
+                </div>
+                `}
+                <button id="cancel-booking-btn" class="w-full bg-red-600 hover:bg-red-700 rounded-lg py-2 font-semibold mt-4 transition-colors text-sm">Cancel Booking</button>
+            </div>
+        </div>
+        `;
+    } else {
+        return `
+        <div class="p-8 text-white h-full text-center text-gray-500 mt-20">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mx-auto"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+            <h2 class="mt-4 text-xl font-semibold text-gray-300">No Active Bookings</h2>
+            <p>Your active parking and service bookings will appear here.</p>
+        </div>
+        `;
+    }
+};
+
+const renderAccountDetails = () => {
+    const displayName = (AppState.user && AppState.user.name) ? AppState.user.name : 'User';
+    const memberSince = AppState.user && AppState.user.memberSince ? new Date(AppState.user.memberSince).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : '-';
+    const plate = AppState.user && AppState.user.vehicle && AppState.user.vehicle.plate ? AppState.user.vehicle.plate : '-';
+    return `
+    <div class="p-8 text-white">
+        <h1 class="text-3xl font-bold mb-6">My Account</h1>
+        <div class="bg-gray-800 rounded-lg p-8 max-w-2xl mx-auto">
+            <div class="flex items-center space-x-6 mb-8">
+                <img src="https://placehold.co/100x100/4a5568/ffffff?text=${escapeHtml(displayName.charAt(0))}" alt="User Avatar" class="w-24 h-24 rounded-full border-4 border-purple-500">
+                <div>
+                    <h2 class="text-2xl font-bold">${escapeHtml(displayName)}</h2>
+                    <p class="text-gray-400">${escapeHtml(AppState.user.email || '')}</p>
+                </div>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-400">Member Since</label>
+                    <p class="text-lg">${escapeHtml(memberSince)}</p>
+                </div>
+                <div class="border-t border-gray-700 my-4"></div>
+                <div>
+                    <h3 class="text-xl font-semibold mb-2">Registered Vehicle</h3>
+                    <p class="text-lg">${escapeHtml(plate)}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    `;
+};
+
+/* --------------------
+   UI updates / listeners
+   -------------------- */
+// THIS IS THE NEW, FIXED FUNCTION
+// THIS IS THE NEW, FIXED FUNCTION
+function updateSlotOnUI(updatedSlot) {
+    // 1. Find the main slot card using its unique ID
+    const mainSlotDiv = document.getElementById(`slot-${updatedSlot.slotId}`); 
+    if (!mainSlotDiv) {
+        console.warn(`Could not find slot UI for ID: slot-${updatedSlot.slotId}`);
+        return;
+    }
+
+    // 2. Find the elements *inside* that specific card
+    const slotButton = mainSlotDiv.querySelector(`.book-slot-btn`);
+    const statusTextEl = mainSlotDiv.querySelector('.text-sm.font-semibold');
+    const statusBadgeEl = mainSlotDiv.querySelector('.w-3.h-3.rounded-full'); // Find the dot
+    
+    const isAvailable = updatedSlot.status === 'Available';
+
+    // 3. Update status text
+    if (statusTextEl) {
+        statusTextEl.textContent = updatedSlot.status;
+    }
+
+    // 4. Update status badge (the colored dot)
+    if (statusBadgeEl) {
+        statusBadgeEl.classList.toggle('bg-green-500', isAvailable);
+        statusBadgeEl.classList.toggle('bg-red-500', !isAvailable); // Assuming Occupied is red
+    }
+
+    // 5. Update card border
+    mainSlotDiv.classList.toggle('border-red-500', !isAvailable);
+    mainSlotDiv.classList.toggle('border-gray-700', isAvailable);
+
+    // 6. Update button
+    if (slotButton) {
+        slotButton.disabled = !isAvailable;
+        slotButton.textContent = isAvailable ? 'Book Now' : updatedSlot.status;
+        slotButton.classList.toggle('bg-purple-600', isAvailable);
+        slotButton.classList.toggle('hover:bg-purple-700', isAvailable);
+        slotButton.classList.toggle('bg-gray-600', !isAvailable);
+        slotButton.classList.toggle('cursor-not-allowed', !isAvailable);
+    }
+}
+
+/* Attach listeners after render */
+function addHomeBoxListeners() {
+    document.getElementById('home-smart-parking')?.addEventListener('click', () => handleNavigation('parking'));
+    document.getElementById('home-route-planner')?.addEventListener('click', () => handleNavigation('planner'));
+    document.getElementById('home-auto-services')?.addEventListener('click', () => handleNavigation('services'));
+}
+
+function addLocationListeners() {
+    document.querySelectorAll('.location-card').forEach(card => {
+        card.addEventListener('click', () => {
+            // resolve display name to actual parkingSlots key (handles spaces/underscores/case)
+            const raw = card.dataset.city;
+            AppState.selectedCity = resolveCityKey(raw);
+            renderCurrentView();
+        });
+    });
+
+    const searchInput = document.getElementById('location-search');
+    if (searchInput) {
+        let t;
+        searchInput.addEventListener('input', () => {
+            clearTimeout(t);
+            t = setTimeout(() => {
+                const q = searchInput.value.trim().toLowerCase();
+                document.querySelectorAll('#locations-grid .location-card').forEach(card => {
+                    const name = (card.dataset.city || '').toLowerCase();
+                    card.style.display = (!q || name.includes(q)) ? '' : 'none';
+                });
+            }, 120);
+        });
+    }
+}
+
+function addParkingGridListeners() {
+    document.getElementById('back-to-locations')?.addEventListener('click', () => {
+        AppState.selectedCity = null;
+        renderCurrentView();
+    });
+
+    document.querySelectorAll('.book-slot-btn').forEach(button => {
+        button.addEventListener('click', (e) => {
+            const btn = e.currentTarget;
+            const slotId = btn.dataset.slotId;
+            const city = btn.dataset.city;
+            openBookingModal(slotId, city);
+        });
+    });
+}
+
+function addPlannerListeners() {
+    const mapDiv = document.getElementById('map-container');
+    if (!mapDiv) return;
+    mapDiv.style.height = "400px";
+    mapDiv.innerHTML = "";
+    const map = L.map('map-container').setView([17.385044, 78.486671], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    setTimeout(() => map.invalidateSize(), 100);
+
+    document.getElementById('get-current-location')?.addEventListener('click', () => {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                pos => {
+                    document.getElementById('start-location').value = `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`;
+                },
+                err => {
+                    document.getElementById('route-error').textContent = `Error: ${err.message}`;
+                }
+            );
+        } else {
+            document.getElementById('route-error').textContent = "Geolocation is not supported.";
+        }
+    });
+
+    document.getElementById('plan-route-btn')?.addEventListener('click', async () => {
+        const start = document.getElementById('start-location').value;
+        const dest = document.getElementById('destination-location').value;
+        if (!start || !dest) {
+            document.getElementById('route-error').textContent = "Enter both start and destination.";
+            return;
+        }
+        try {
+            const [startData, destData] = await Promise.all([
+                fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(start)}`).then(res => res.json()),
+                fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(dest)}`).then(res => res.json())
+            ]);
+            if (startData[0] && destData[0]) {
+                const startLatLng = [parseFloat(startData[0].lat), parseFloat(startData[0].lon)];
+                const destLatLng = [parseFloat(destData[0].lat), parseFloat(destData[0].lon)];
+                map.setView(startLatLng, 13);
+                map.eachLayer(layer => {
+                    if (layer instanceof L.Marker || layer instanceof L.Polyline) map.removeLayer(layer);
+                });
+                L.marker(startLatLng).addTo(map).bindPopup("Start").openPopup();
+                L.marker(destLatLng).addTo(map).bindPopup("Destination");
+                const osrmRes = await fetch(`https://router.project-osrm.org/route/v1/driving/${startLatLng[1]},${startLatLng[0]};${destLatLng[1]},${destLatLng[0]}?overview=full&geometries=geojson`);
+                const routeData = await osrmRes.json();
+                if (routeData.routes && routeData.routes.length > 0) {
+                    const coords = routeData.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+                    L.polyline(coords, {color: 'purple', weight: 5}).addTo(map);
+                    map.fitBounds(coords);
+                } else {
+                    document.getElementById('route-error').textContent = "No route found.";
+                }
+            } else {
+                document.getElementById('route-error').textContent = "Could not find locations.";
+            }
+        } catch (err) {
+            document.getElementById('route-error').textContent = `Routing error: ${err.message}`;
+        }
+    });
+}
+
+function addBookingsListeners() {
+    if (AppState.activeBooking) {
+        if (!AppState.activeBooking.carArrived) {
+            document.getElementById('car-arrived-btn')?.addEventListener('click', handleCarArrived);
+        } else {
+            document.getElementById('car-left-btn')?.addEventListener('click', handleCarLeft);
+        }
+        document.getElementById('cancel-booking-btn')?.addEventListener('click', () => handleCancelBooking(false));
+    }
+}
+
+function addAutoServiceListeners() {
+    document.querySelectorAll('.service-book-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (!AppState.activeBooking) return;
+            showToast({ title: 'Service Booked', body: 'Your auto service has been booked.' });
+            AppState.serviceBookings.push({ type: btn.previousElementSibling ? btn.previousElementSibling.textContent.trim() : 'Service', slot: AppState.activeBooking.slot.id });
+        });
+    });
+}
+
+/* --------------------
+   Booking modal (prefill CMR from backend)
+   -------------------- */
+async function fetchUserFromBackend() {
+    try {
+        const res = await fetch(`${API_BASE_URL}/user`);
+        if (!res.ok) throw new Error('no user');
+        return await res.json();
+    } catch (err) {
+        console.warn('Could not fetch user from backend:', err);
+        return null;
+    }
+}
+
+async function openBookingModal(slotId, city) {
+    // for CMR, try backend
+    let backendUser = null;
+    if (city === 'CMR') backendUser = await fetchUserFromBackend();
+    const nameVal = (backendUser && backendUser.name) ? backendUser.name : (AppState.user && AppState.user.name) || '';
+    const vehicleVal = (backendUser && backendUser.vehicle && backendUser.vehicle.plate) ? backendUser.vehicle.plate : (AppState.user && AppState.user.vehicle && AppState.user.vehicle.plate) || '';
+
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2,'0');
+    const mm = String(now.getMinutes()).padStart(2,'0');
+    const defaultTime = `${hh}:${mm}`;
+
+    const content = `
+        <div class="bg-gray-900 bg-opacity-90 fixed inset-0 flex items-center justify-center z-50">
+            <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md text-white">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-bold">Book Slot ${escapeHtml(slotId)}</h3>
+                    <button id="booking-close" class="text-gray-300 hover:text-white text-2xl">&times;</button>
+                </div>
+                <form id="booking-form">
+                    <input type="hidden" name="slotId" value="${escapeHtml(slotId)}">
+                    <input type="hidden" name="city" value="${escapeHtml(city)}">
+                    <div class="mb-3">
+                        <label class="text-sm text-gray-400">Your name</label>
+                        <input name="name" required value="${escapeHtml(nameVal)}" class="w-full bg-gray-700 rounded-md p-2 mt-1" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="text-sm text-gray-400">Vehicle number</label>
+                        <input name="vehicleNumber" required value="${escapeHtml(vehicleVal)}" class="w-full bg-gray-700 rounded-md p-2 mt-1" />
+                    </div>
+                    <div class="mb-4">
+                        <label class="text-sm text-gray-400">Start time</label>
+                        <input type="time" name="startTime" value="${defaultTime}" required class="w-full bg-gray-700 rounded-md p-2 mt-1" />
+                    </div>
+                    <div class="flex gap-3">
+                        <button type="submit" class="w-full bg-purple-600 hover:bg-purple-700 py-2 rounded-md font-semibold">Confirm</button>
+                        <button type="button" id="booking-cancel" class="w-full bg-gray-600 hover:bg-gray-500 py-2 rounded-md font-semibold">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    `;
+    showModal(content);
+    document.getElementById('booking-close')?.addEventListener('click', closeModal);
+    document.getElementById('booking-cancel')?.addEventListener('click', closeModal);
+    document.getElementById('booking-form')?.addEventListener('submit', (ev) => {
+        ev.preventDefault();
+        const fd = new FormData(ev.target);
+        const details = Object.fromEntries(fd.entries());
+        // tolerant lookup: match slotId or id
+        const s = (AppState.parkingSlots[city] || []).find(x => (x.slotId === details.slotId) || (x.id === details.slotId));
+        if (s) s.status = 'Booked';
+        AppState.activeBooking = {
+            name: details.name,
+            vehicleNumber: details.vehicleNumber,
+            startTime: details.startTime,
+            slot: s || { id: details.slotId, slotId: details.slotId },
+            city,
+            bookingTimestamp: Date.now(),
+            carArrived: false
+        };
+        closeModal();
+        renderCurrentView();
+        showToast({ title: 'Booking confirmed', body: `Slot ${details.slotId} booked at ${details.startTime}` });
+        startNoShowTimers();
+    }, { once: true });
+}
+
+/* Confirm booking modal (legacy handler kept) */
+function handleConfirmBooking(event) {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const bookingDetails = Object.fromEntries(formData.entries());
+    const slot = AppState.parkingSlots[bookingDetails.city].find(s => s.id === bookingDetails.slotId);
+    slot.status = 'Booked';
+    AppState.activeBooking = {
+        ...bookingDetails,
+        slot,
+        bookingTimestamp: Date.now(),
+        carArrived: false
+    };
+    closeModal();
+    renderCurrentView();
+    showToast({ title: 'Booking Successful!', body: `Slot ${slot.id} is reserved starting at ${bookingDetails.startTime}.` });
+    startNoShowTimers();
+}
+
+/* Booking lifecycle helpers */
+function handleCancelBooking(isAuto = false) {
+    if (!AppState.activeBooking) return;
+    const { slot, city } = AppState.activeBooking;
+    const s = AppState.parkingSlots[city].find(s => s.id === slot.id);
+    if (s) s.status = 'Available';
+    AppState.activeBooking = null;
+    AppState.serviceBookings = [];
+    clearTimers();
+    if (!isAuto) showToast({ title: 'Booking Cancelled', body: `Your booking for slot ${slot.id} has been cancelled.` });
+    renderCurrentView();
+}
+
+function handleCarArrived() {
+    if (!AppState.activeBooking) return;
+    AppState.activeBooking.carArrived = true;
+    clearTimers();
+    showToast({ title: 'Vehicle Parked', body: `Your session at slot ${AppState.activeBooking.slot.id} has started.` });
+    renderCurrentView();
+}
+
+function handleCarLeft() {
+    if (!AppState.activeBooking) return;
+
+    const nowMs = Date.now();
+    const startMs = AppState.activeBooking.bookingTimestamp || nowMs;
+    let durationMins = Math.ceil((nowMs - startMs) / (1000 * 60)); // minutes
+    if (durationMins < 1) durationMins = 1; // minimum 1 minute
+
+    const hours = Math.floor(durationMins / 60);
+    const minutes = durationMins % 60;
+    const durationStr = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+
+    const pricePerHour = Number(AppState.activeBooking.slot?.price ?? AppState.activeBooking.slot?.rate ?? 0);
+    const pricePerMinute = pricePerHour / 60;
+    const rawTotal = durationMins * pricePerMinute;
+    const totalBill = Math.round(rawTotal * 100) / 100; // 2 decimals
+
+    const content = `
+        <div class="bg-gray-800 text-white rounded-lg p-8 w-full max-w-md m-4">
+            <h2 class="text-2xl font-bold mb-4">Session Ended</h2>
+            <p class="mb-2">Slot: <span class="font-semibold">${escapeHtml(AppState.activeBooking.slot?.id || AppState.activeBooking.slot?.slotId || 'Unknown')}</span></p>
+            <p class="mb-2">Booked At: <span class="font-semibold">${new Date(startMs).toLocaleString()}</span></p>
+            <p class="mb-2">Left At: <span class="font-semibold">${new Date(nowMs).toLocaleTimeString().substring(0,5)}</span></p>
+            <p class="mb-2">Duration: <span class="font-semibold">${escapeHtml(durationStr)}</span></p>
+            <p class="mb-4 text-lg">Total Bill: <span class="font-bold text-purple-400">₹${totalBill.toFixed(2)}</span></p>
+            <button id="close-bill-modal" class="w-full bg-purple-600 hover:bg-purple-700 rounded-lg py-3 font-semibold mt-4">Close</button>
+        </div>
+    `;
+    showModal(content);
+    document.getElementById('close-bill-modal')?.addEventListener('click', () => {
+        closeModal();
+        // mark slot available and clear booking
+        handleCancelBooking(true);
+        renderCurrentView();
+    });
+}
+
+/* No-show timers */
+function startNoShowTimers() {
+    // Clear any previous timers
+    clearTimers();
+
+    let remindersSent = 0;
+    const maxReminders = 3;
+
+    AppState.notificationInterval = setInterval(() => {
+        remindersSent++;
+
+        // If there's no active booking anymore stop
+        if (!AppState.activeBooking) {
+            clearTimers();
+            return;
+        }
+
+        showToast({
+            title: `Reminder (${remindersSent}/${maxReminders}): Slot ${AppState.activeBooking.slot.id}`,
+            body: `Please park your vehicle. Reminder #${remindersSent}.`,
+            type: 'warning'
+        });
+
+        // After maxReminders, auto-cancel if vehicle hasn't arrived
+        if (remindersSent >= maxReminders) {
+            // Give the UI a tiny moment to reflect any last-second arrival
+            setTimeout(() => {
+                if (AppState.activeBooking && !AppState.activeBooking.carArrived) {
+                    showToast({
+                        title: 'Booking Cancelled',
+                        body: `No vehicle at slot ${AppState.activeBooking.slot.id} after ${maxReminders} reminders.`,
+                        type: 'error'
+                    });
+                    handleCancelBooking(true);
+                }
+                clearTimers();
+            }, 400); // short delay
+        }
+    }, 10000);
+}
+
+function clearTimers() {
+    if (AppState.notificationInterval) {
+        clearInterval(AppState.notificationInterval);
+        AppState.notificationInterval = null;
+    }
+    if (AppState.noShowTimer) {
+        clearTimeout(AppState.noShowTimer);
+        AppState.noShowTimer = null;
+    }
+}
+
+/* --------------------
+   Data fetching + init
+   -------------------- */
+async function fetchInitialData() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/parking-data`);
+        if (!response.ok) throw new Error('Network response was not ok');
+        const data = await response.json();
+        AppState.locations = data.locations || defaultLocations;
+        AppState.parkingSlots = data.parkingSlots || defaultParkingSlots;
+    } catch (error) {
+        console.error("Failed to fetch initial data, using defaults:", error);
+        AppState.locations = defaultLocations;
+        AppState.parkingSlots = defaultParkingSlots;
+        showToast({ title: 'Offline', body: 'Using default data (server unavailable).', type: 'warning' });
+    }
+    renderCurrentView();
+}
+
+/* --------------------
+   Core render + navigation
+   -------------------- */
+function renderCurrentView() {
+    const mainContent = document.querySelector('main');
+    let content = '';
+    switch (AppState.currentView) {
+        case 'home': content = renderHome(); break;
+        case 'parking': content = AppState.selectedCity ? renderParkingGrid(AppState.selectedCity) : renderLocationSelection(); break;
+        case 'planner': content = renderRoutePlanner(); break;
+        case 'services': content = renderAutoServices(); break;
+        case 'finder': content = renderFuelFinder(); break;
+        case 'bookings': content = renderMyBookings(); break;
+        case 'account': content = renderAccountDetails(); break;
+        default: content = renderHome();
+    }
+    mainContent.innerHTML = content;
+
+    // attach listeners for current view
+    if (AppState.currentView === 'parking' && !AppState.selectedCity) addLocationListeners();
+    else if (AppState.currentView === 'parking' && AppState.selectedCity) addParkingGridListeners();
+    else if (AppState.currentView === 'home') addHomeBoxListeners();
+    else if (AppState.currentView === 'planner') addPlannerListeners();
+    else if (AppState.currentView === 'services') addAutoServiceListeners();
+    else if (AppState.currentView === 'bookings') addBookingsListeners();
+    renderNotificationIcon();
+}
+
+function handleNavigation(viewName) {
+    AppState.currentView = viewName || 'home';
+    AppState.selectedCity = null;
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.classList.remove('bg-purple-600', 'text-white');
+        if (item.dataset.view === AppState.currentView) item.classList.add('bg-purple-600', 'text-white');
+    });
+    try { renderCurrentView(); } catch (err) { console.error(err); document.querySelector('main').innerHTML = '<div class="p-8 text-white">Render error</div>'; }
+}
+
+function renderNotificationIcon() {
+    const container = document.getElementById('notification-icon-container');
+    if (!container) return;
+    if (AppState.activeBooking && !AppState.activeBooking.carArrived) {
+        container.innerHTML = `
+            <div class="relative">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-white"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+                <span class="absolute top-0 right-0 block h-3 w-3 rounded-full bg-red-500 ring-2 ring-gray-800 animate-ping"></span>
+            </div>
+        `;
+    } else {
+        container.innerHTML = '';
+    }
+}
+
+/* --------------------
+   Initialization
+   -------------------- */
+document.addEventListener('DOMContentLoaded', async () => {
+    const storedUser = JSON.parse(localStorage.getItem('smartpark_user'));
+    if (storedUser) AppState.user = { ...AppState.user, ...storedUser };
+
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', (e) => handleNavigation(e.currentTarget.dataset.view));
+    });
+    document.getElementById('logout-button')?.addEventListener('click', () => {
+        localStorage.removeItem('smartpark_user');
+        showToast({ title: 'Logged Out', body: 'You have been successfully logged out.' });
+        setTimeout(() => window.location.href = './login.html', 900);
+    });
+
+    // insert empty views container (keeps DOM consistent)
+    const main = document.querySelector('main');
+    main.innerHTML = ''; // will be filled by renderCurrentView after fetch
+    await fetchInitialData();
+});
+
+// ----------------------
+// Utility to resolve display name -> parkingSlots key
+// ----------------------
+function resolveCityKey(displayName) {
+    if (!displayName) return displayName;
+    const keys = Object.keys(AppState.parkingSlots || {});
+    // direct match
+    if (keys.includes(displayName)) return displayName;
+    // try underscore variant
+    const underscored = displayName.replace(/\s+/g, '_');
+    if (keys.includes(underscored)) return underscored;
+    // try space variant (replace underscores)
+    const spaced = displayName.replace(/_+/g, ' ');
+    if (keys.includes(spaced)) return spaced;
+    // case-insensitive match
+    const lowerMatch = keys.find(k => k.toLowerCase() === displayName.toLowerCase() || k.toLowerCase() === underscored.toLowerCase() || k.toLowerCase() === spaced.toLowerCase());
+    if (lowerMatch) return lowerMatch;
+    // fallback to original (will result in "no slots" message)
+    return displayName;
+}
+</script>
+</body>
+</html>
+
