@@ -17,6 +17,72 @@
         .view { display: none; }
         .view.active { display: block; }
         #map-container { height: 60vh; width: 100%; border-radius: 0.5rem; z-index: 0; }
+
+        /* Base transition for the sidebar */
+        #sidebar {
+          transition: transform .28s ease, box-shadow .28s ease;
+        }
+
+        /* Overlay default - hidden */
+        #sidebar-overlay {
+          display: none;
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,0.55);
+          z-index: 45;
+          opacity: 0;
+          transition: opacity .2s ease;
+          pointer-events: none;
+        }
+
+        /* Mobile-specific behavior */
+        @media (max-width: 767px) {
+          /* hide desktop sidebar by default (we will slide in) */
+          #sidebar {
+            display: block;               /* keep in DOM */
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            width: 16rem;                /* same visual width as md layout */
+            transform: translateX(-100%);/* hidden off-canvas left */
+            z-index: 50;
+            box-shadow: 0 10px 30px rgba(2,6,23,0.6);
+          }
+
+          /* when open, slide into view */
+          #sidebar.open {
+            transform: translateX(0);
+          }
+
+          /* mobile header visible only on small screens */
+          #mobile-header { display: flex; position: fixed; top: 0; left: 0; right: 0; z-index: 60; }
+
+          /* push main content below header */
+          #main-content { padding-top: 56px; }
+
+          /* show overlay when active */
+          #sidebar-overlay.show {
+            display: block;
+            opacity: 1;
+            pointer-events: auto;
+          }
+
+          /* show the in-sidebar close button only on mobile */
+          #sidebar-close { display: inline-flex; }
+        }
+
+        /* Desktop: ensure sidebar visible normally */
+        @media (min-width: 768px) {
+          #mobile-header { display: none; }
+          #sidebar-overlay { display: none; }
+          #sidebar { transform: none; position: relative; height: auto; box-shadow: none; }
+          #sidebar-close { display: none; }
+          #main-content { padding-top: 0; }
+        }
+
+        /* optional: prevent body scroll when sidebar open */
+        body.no-scroll { overflow: hidden; }
     </style>
 </head>
 <body class="bg-gray-900">
@@ -29,22 +95,40 @@
 </script>
 
 <div id="app-container" class="flex min-h-screen">
+    <!-- Mobile header (visible only on mobile) -->
+    <header id="mobile-header" class="w-full bg-gray-900 p-3 flex items-center gap-3 md:hidden fixed top-0 left-0 z-40">
+        <button id="mobile-hamburger" aria-label="Open menu" class="p-2 bg-gray-800 rounded-md">
+            <!-- simple hamburger -->
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="text-white">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+            </svg>
+        </button>
+        <div class="ml-2 text-white font-semibold">S-Park</div>
+    </header>
+
     <!-- Sidebar -->
-    <aside class="w-64 bg-gray-800 p-4 flex flex-col flex-shrink-0">
+    <aside id="sidebar" class="w-64 bg-gray-800 p-4 flex flex-col flex-shrink-0 hidden md:flex">
         <div class="flex items-center gap-3 p-4">
             <img src="logo.png" alt="S-Park Logo" class="w-10 h-10 rounded-full object-cover" />
             <h1 class="text-white text-2xl font-bold">S-Park</h1>
-            <!-- notification icon container (used by renderNotificationIcon) -->
-            <div id="notification-icon-container" class="ml-auto"></div>
+
+            <!-- Close button visible on mobile inside sidebar -->
+            <button id="sidebar-close" aria-label="Close menu" class="ml-auto md:hidden p-1 rounded hover:bg-gray-700 text-gray-200">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
         </div>
+
         <ul class="text-gray-300 space-y-2 flex-grow">
             <li data-view="home" class="nav-item p-4 rounded-lg cursor-pointer flex items-center gap-3 hover:bg-gray-700">Home</li>
-            <li data-view="parking" class="nav-item p-4 rounded-lg cursor-pointer flex items-center gap-3 bg-purple-600 text-white">Parking</li>
+            <li data-view="parking" class="nav-item p-4 rounded-lg cursor-pointer flex items-center gap-3">Parking</li>
             <li data-view="planner" class="nav-item p-4 rounded-lg cursor-pointer flex items-center gap-3 hover:bg-gray-700">Route Planner</li>
             <li data-view="services" class="nav-item p-4 rounded-lg cursor-pointer flex items-center gap-3 hover:bg-gray-700">Auto Services</li>
             <li data-view="finder" class="nav-item p-4 rounded-lg cursor-pointer flex items-center gap-3 hover:bg-gray-700">Fuel Finder</li>
             <li data-view="bookings" class="nav-item p-4 rounded-lg cursor-pointer flex items-center gap-3 hover:bg-gray-700">My Bookings</li>
         </ul>
+
         <div class="border-t border-gray-700 mt-4 pt-4">
             <li data-view="account" class="nav-item p-4 rounded-lg cursor-pointer flex items-center gap-3 hover:bg-gray-700 text-gray-300">My Account</li>
             <li id="logout-button" class="p-4 rounded-lg cursor-pointer flex items-center gap-3 hover:bg-gray-700 text-gray-300">Logout</li>
@@ -52,10 +136,13 @@
     </aside>
 
     <!-- Main Content -->
-    <main class="flex-1 overflow-y-auto relative">
+    <main id="main-content" class="flex-1 overflow-y-auto relative pt-0 md:pt-0">
         <!-- Views are dynamically inserted here -->
     </main>
 </div>
+
+<!-- Overlay for mobile when sidebar is open -->
+<div id="sidebar-overlay" aria-hidden="true"></div>
 
 <!-- Modals and Notifications -->
 <div id="modal-container"></div>
@@ -894,8 +981,8 @@ function startNoShowTimers() {
                     showToast({
                         title: 'Booking Cancelled',
                         body: `No vehicle at slot ${AppState.activeBooking.slot.id} after ${maxReminders} reminders.`,
-                        type: 'error'
-                    });
+                        type: 'error'}
+                    );
                     handleCancelBooking(true);
                 }
                 clearTimers();
@@ -966,8 +1053,10 @@ function handleNavigation(viewName) {
     AppState.currentView = viewName || 'home';
     AppState.selectedCity = null;
     document.querySelectorAll('.nav-item').forEach(item => {
-        item.classList.remove('bg-purple-600', 'text-white');
-        if (item.dataset.view === AppState.currentView) item.classList.add('bg-purple-600', 'text-white');
+        item.classList.remove('bg-purple-600','text-white');
+        if (item.dataset.view === AppState.currentView) {
+            item.classList.add('bg-purple-600','text-white');
+        }
     });
     try { renderCurrentView(); } catch (err) { console.error(err); document.querySelector('main').innerHTML = '<div class="p-8 text-white">Render error</div>'; }
 }
@@ -997,6 +1086,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', (e) => handleNavigation(e.currentTarget.dataset.view));
     });
+
+    // ensure initial nav highlight matches current view (home by default)
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.classList.remove('bg-purple-600','text-white');
+        if (item.dataset.view === AppState.currentView) {
+            item.classList.add('bg-purple-600','text-white');
+        }
+    });
+
     document.getElementById('logout-button')?.addEventListener('click', () => {
         localStorage.removeItem('smartpark_user');
         showToast({ title: 'Logged Out', body: 'You have been successfully logged out.' });
@@ -1029,6 +1127,107 @@ function resolveCityKey(displayName) {
     // fallback to original (will result in "no slots" message)
     return displayName;
 }
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const hamburger = document.getElementById('mobile-hamburger');
+  const sidebar = document.getElementById('sidebar');
+  const closeBtn = document.getElementById('sidebar-close');
+  const overlay = document.getElementById('sidebar-overlay');
+  const body = document.body;
+
+  function openSidebar() {
+    sidebar?.classList.add('open');
+    overlay?.classList.add('show');
+    body.classList.add('no-scroll');
+  }
+  function closeSidebar() {
+    sidebar?.classList.remove('open');
+    overlay?.classList.remove('show');
+    body.classList.remove('no-scroll');
+  }
+
+  hamburger?.addEventListener('click', (e) => { e.stopPropagation(); openSidebar(); });
+  closeBtn?.addEventListener('click', (e) => { e.stopPropagation(); closeSidebar(); });
+  overlay?.addEventListener('click', closeSidebar);
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSidebar(); });
+  window.addEventListener('resize', () => { if (window.innerWidth >= 768) closeSidebar(); });
+
+  // Delegated nav handler: supports elements with data-view and anchors with hashes
+  document.addEventListener('click', (ev) => {
+    try {
+      const target = ev.target;
+      // check for element carrying data-view attribute (closest)
+      const navEl = target.closest('[data-view]');
+      // or check for anchors like <a href="#parking">
+      const anchor = target.closest('a[href^="#"]');
+
+      if (!navEl && !anchor) return; // not a SPA nav click
+
+      // If anchor points to an external file (e.g., .html) allow default navigation
+      if (anchor) {
+        const href = anchor.getAttribute('href') || '';
+        if (href.includes('.html') || href.startsWith('http')) {
+          return; // allow regular navigation for file links/external
+        }
+      }
+
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      const view = (navEl && navEl.dataset.view) || (anchor && (anchor.getAttribute('href') || '').replace(/^#/, '')) || null;
+      if (!view) return;
+
+      console.debug('[NAV] routing ->', view);
+
+      // update history safely
+      try {
+        history.pushState({ view }, '', `#${view}`);
+      } catch (e) {
+        console.warn('history.pushState failed', e);
+      }
+
+      // update app state and render using available renderer
+      try {
+        if (window.AppState) AppState.currentView = view;
+        if (typeof window.renderCurrentView === 'function') {
+          window.renderCurrentView();
+        } else if (typeof window.renderView === 'function') {
+          window.renderView(view);
+        } else {
+          console.warn('No renderCurrentView / renderView found to handle view:', view);
+        }
+      } catch (renderErr) {
+        console.error('Render error while navigating to', view, renderErr);
+      }
+
+      // ensure mobile sidebar closes after navigation
+      closeSidebar();
+    } catch (err) {
+      // capture first error line and paste here if still failing
+      console.error('Nav handler unexpected error:', err);
+    }
+  }, { passive: false });
+
+  // handle back/forward navigation
+  window.addEventListener('popstate', (ev) => {
+    const stateView = (ev.state && ev.state.view) || (location.hash ? location.hash.replace('#','') : null);
+    if (!stateView) return;
+    try {
+      if (window.AppState) AppState.currentView = stateView;
+      if (typeof window.renderCurrentView === 'function') window.renderCurrentView();
+    } catch (e) {
+      console.error('popstate render error:', e);
+    }
+  });
+
+  // Optional: initial routing from hash on load
+  const initialHash = location.hash ? location.hash.replace('#','') : null;
+  if (initialHash && typeof window.renderCurrentView === 'function') {
+    if (window.AppState) AppState.currentView = initialHash;
+    window.renderCurrentView();
+  }
+});
 </script>
 </body>
 </html>
