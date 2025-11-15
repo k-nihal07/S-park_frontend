@@ -178,7 +178,7 @@ const defaultLocations = [
     { name: 'Kompally', image: 'kompally.jpeg' },
     { name: 'Suchitra', image: 'suchitra.jpg' },
     { name: 'Medchal', image: 'medchal.jpeg' },
-    { name: 'CMR', image: "cmr.jpeg" },
+    { name: 'CMR', image: 'cmr.jpeg' },
     { name: 'Tank Bund', image: 'tank_bund.jpeg' },
     { name: 'Charminar', image: 'charminar.jpeg' },
     { name: 'Central_Bus_Station', image: 'central_bus_station.jpeg' },
@@ -327,7 +327,7 @@ const renderHome = () => `
         <div class="flex flex-col items-center">
             <img src="images/logo.png" alt="S-Park App" class="w-32 h-32 rounded-full shadow-lg mb-6 object-cover" />
             <h1 class="text-4xl font-bold mb-4 text-center">Welcome to S-Park!</h1>
-            <p class="text-lg text-gray-300 mb-6 text-center">S-Park is your smart parking assistant.</p>
+            <p class="text-lg text-gray-300 mb-6 text-center">S-Park is your smart parking assistant,\nFind and book parking instantly!!</p>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mt-8">
             <div id="home-smart-parking" class="bg-gray-800 rounded-lg p-6 border border-gray-700 text-center cursor-pointer hover:bg-purple-700 transition">
@@ -341,7 +341,25 @@ const renderHome = () => `
             </div>
         </div>
     </div>
-</div>
+
+
+      <!-- Contact card -->
+      <div class="absolute bottom-4 right-4 z-30">
+      <div class="flex items-center gap-3 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 shadow-lg">
+        <svg class="w-6 h-6 text-purple-400" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M2 3v18h20V3H2zm18 2v6.5l-8 4.5-8-4.5V5h16z" fill="currentColor" opacity="0.08"/>
+          <path d="M20 5H4v6.764l8 4.5 8-4.5V5z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M4 19h16" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+     
+
+          <div class="text-sm text-gray-300">
+            <a href="mailto:contact@s-park@gmail.com" class="block font-semibold text-white hover:underline">contact@s-park@gmail.com</a>
+            <a href="tel:+919493566596" class="block text-xs text-gray-400 mt-0.5">+91 94935 66596</a>
+          </div>
+        </div>
+      </div>
+    </div>
 `;
 
 const renderFuelFinder = () => `
@@ -1231,6 +1249,4 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 </body>
 </html>
-
-
 
